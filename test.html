@@ -1,0 +1,38 @@
+<html>
+  <head>
+    <title>
+    korean_input ime.js test
+    </title>
+    <!-- 
+      `viewport` gives browsers info about page dimensions/scaling to allow optimisation for devices. 
+      `initial-scale=1.0` defines initial zoom level. `user-scalable` controls page zooming.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <!-- Unicode (of type utf-8) is being used and should be declared to inform browser-->
+    <meta charset="utf-8">
+    
+    <!-- 
+      Requests the korean input ime javascript code here.
+    -->
+    <script type="text/javascript" src="ime.js">
+    
+    </script>
+    
+    <script>
+      window.onload = function(e)
+      {
+        korean_input.method("textarea_input");
+      };
+    </script>
+    
+  </head>
+
+  <body >
+  <!-- 
+    Textarea which accepts the user input is here.
+  -->
+  <textarea id="textarea_input">
+  </textarea>
+  </body>
+
+</html>
