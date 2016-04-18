@@ -1,285 +1,245 @@
-/*
-ToDo: 
-FILTER: correct handling of non-alpha characters
-STM: weird behavior when using double shift chars as in JJA-JJANG-MYEON
-STM: immediately after backspace, STM seems to be in wrong state to produce new character (or maybe just the pke is missing)
-STM: numerals are seemingly interpreted as characters sometimes...this is problematic :/
-STM: what to do when actual character button is pressed together wirth alt or something to create a new character? allow it?
-STM: allow normal processing as hangul only if alpha or alpha + shift. 
-STM: control keys, numerals, symbols cause symbol termination and backspace delete or something is passed through to system
-POP: Check if previous character is hangul, otherwise dont pop! 
-     (or instead check if 
-FILTER: keymap doesnt account for simultaneously pressed keys!
-GENERAL: BEAT GOOGLE's 3911 bytes
+// ToDo:
+// In-Progress. Not working script.
+// FYI. Expected input: C + V + V + C || C + V + V || C + V + C || C + V || alt input
 
-*/
+// Creates an anonymous function (with namespace 'korean_input') which immediately runs
 
-var hangul = (function () {
-	var ini="", mid="", fin="",tmp=""; //three parts to a letter
-	var _; //This will be our  input element
+  var korean_input = (function () {
 
-	var s; //new state variable
-	function init(id){
-				_ = document.getElementById(id);
-				_.addEventListener("keydown", keyFilter, false);
-				s=0;
-		
+	// Common variables (which are used across the anonymous function) 
+	var input; // Raw info from page
+    
+	// To be stored in memory across keyInput events
+	var convert; // T/F Boolean. Use Korean if true or switchover to Alphanumeric input if false
+	
+	var hangul; // Hangul object
+
+	// Mapping
+	// These are the only keys which will be taken in account
+	var mapKeycodeToKey = {
+    18:"alt", // Alt = finalise and exit out (and then allow input of normal letters)
+    16:"shift", // Shift key = indicate uppercase corresponding characters (but will only work if pressed simultaneously)
+    8: "delete", // Delete/Backspace key = indicates previous input should be deleted
+    32:" ", // Space = finalise previous as letter if a keystroke exist beforehand (double Space = " ") Note: 1 char!
+    81:"q", 87:"w", 69:"e", 82:"r", 84:"t",89:"y",85:"u",73:"i",79:"o",80:"p",
+    65:"a", 83:"s", 68:"d", 70:"f", 71:"g", 72:"h",74:"j", 75:"k", 76:"l",
+    90:"z", 88:"x", 67:"c", 86:"v", 66:"b", 78:"n", 77:"m"
 	}
 	
-	var lut = {	q:"ㅂ",w:"ㅈ", e:"ㄷ",r:"ㄱ",t:"ㅅ",y:"ㅛ",u:"ㅕ",i:"ㅑ",o:"ㅐ",p:"ㅔ",
-				a:"ㅁ",s:"ㄴ",d:"ㅇ",f:"ㄹ", g:"ㅎ", h:"ㅗ",j:"ㅓ", k:"ㅏ", l:"ㅣ",
-				z:"ㅋ",x:"ㅌ",c:"ㅊ",v:"ㅍ",b:"ㅠ", n:"ㅜ", m:"ㅡ",
-				Q:"ㅃ",W:"ㅉ",E:"ㄸ", R:"ㄲ", T:"ㅆ", Y:"ㅛ", U:"ㅕ", I:"ㅑ", O:"ㅒ", P:"ㅖ",
-				A:"ㅁ", S:"ㄴ", D:"ㅇ", F:"ㄹ", G:"ㅎ", H:"ㅗ", J:"ㅓ", K:"ㅏ", L:"ㅣ",
-				Z:"ㅋ", X:"ㅌ", C:"ㅊ", V:"ㅍ", B:"ㅠ", N:"ㅜ", M:"ㅡ",
-				};
+	var mapKeystrokeToJamo = {
+    // SimpleType (Applicable to Head/Body/Tail)
+    q:"ㅂ",w:"ㅈ", e:"ㄷ",r:"ㄱ",t:"ㅅ",y:"ㅛ",u:"ㅕ",i:"ㅑ",o:"ㅐ",p:"ㅔ", 
+    a:"ㅁ",s:"ㄴ",d:"ㅇ",f:"ㄹ", g:"ㅎ", h:"ㅗ",j:"ㅓ", k:"ㅏ", l:"ㅣ",
+    z:"ㅋ",x:"ㅌ",c:"ㅊ",v:"ㅍ",b:"ㅠ", n:"ㅜ", m:"ㅡ",
+    Q:"ㅃ",W:"ㅉ",E:"ㄸ", R:"ㄲ", T:"ㅆ", O:"ㅒ", P:"ㅖ", 
+    // ComplexType (Applicable to Body only)
+    hk: "ㅘ ", ho: "ㅙ", hl:"ㅚ ", nj:"ㅝ ", np:"ㅞ ", nl:"ㅟ ", ml:"ㅢ",
+    // ComplexType (Applicable to Tail only)
+    rt:"ㄳ", sw:"ㄵ", sg:"ㄶ",
+    fr:"ㄺ", fa:"ㄻ", fq:"ㄼ", ft:"ㄽ", fx:"ㄾ", fv:"ㄿ", fg:"ㅀ",
+    qt:"ㅄ", 
+    // Applicable to Head and Tail
+    tt:"ㅆ",
+    // Special head cases
+    qq:"ㅃ",ww:"ㅉ", ee:"ㄸ",rr:"ㄲ"//,tt:"ㅆ"
+  };
 
-	var lutI = {q:8,w:13, e:4,r:1,t:10,
-				a:7,s:3,d:12,f:6, g:19,
-				z:16,x:17,c:15,v:18,
-				Q:9,W:14,E:5, R:2, T:11, 
-				A:7, S:3, D:12, F:6, G:19,
-				Z:16, X:17, C:15, V:18
-				};	
-				
-	var lutM = { //$ sign denotes space / no 2nd vowel
-				$:1,
-				//plain vowels
-				y:13,u:7,i:3,o:2,p:6,
-	 			h:9,j:5, k:1, l:21,
-	 			b:18, n:14, m:19,
-				Y:13, U:7, I:3, O:4, P:8,
-	  			H:9, J:5, K:1, L:21,
-	   			B:18, N:14, M:19,
-				//complex vowels
-				hk:10, hK:10, Hk:10 ,HK:10,
-				ho:11, Ho:11,
-				hl:12, hL:12, Hl:12,HL:12,
-				nj:15, Nj:15, nJ:15,NJ:15,
-				np:16, Np:16,
-				nl:17, Nl:17, nL:17, NL:17,
-				ml:20, Ml:20, mL:20, ML:20
-				};	
-				
-	var lutF = { //$ sign denotes space / no final 
-				$:0,
-				//plain vowels
-				r:1,
-				s:4, S:4,
-				e:7,
-				f:8,F:8,
-				a:16, A:16,
-				q:17,Q:17,
-				t:19,
-				d:21,D:21,
-				w:22,
-				c:23,C:23,
-				z:24,Z:24,
-				x:25,X:25,
-				v:26,V:26,
-				g:27,G:27,
-				
-				//complex finals
-				R:2,
-				rt:3,
-				sw:5, sw:5,
-				sg:6, Sg:6, sG:6, SG:6,
-				fr:9, Fr:9,
-				fa:10, Fa:10, fA:10, FA:10,
-				fq:11, Fq:11,
-				ft:12, Ft:12, 
-				fx:13, Fx:13, fX:13, FX:13,
-				fv:14, Fv:14, fV:14, FV:14,
-				fg:15, Fg:15, fG:15, FG:15,
-				qt:18,
-				T:20
-				};
-				
-	
-	
-	//transfer table mid2elevation(m2e) to check for transfer of states MID1->MID2
-	var m2e = {h:"kKolL",H:"kKolL",n:"lLjJp",N:"lLjJp", m:"Ll", M:"Ll"}; //meaning on h(ㅗ) and H(ㅗ) there may follow kKolL (ㅏㅏㅐㅣㅣ) 
-	//transfer table fin2elevation(f2e) to check for transfer of states FIN1->FIN2
-	var f2e = {r:"t",s:"wgG", S:"wgG", f:"raAqtxXgG", F:"raAqtxXgG", q:"t"}
-	
-	//This shall filter events such as shift, alt, enter, backspace and let only alphanumeric pass through
-	function keyFilter(e){
-		//get keymappings for alpha and backspace, passthrough everything else
-		//1: consonants,
-		//2: vowels
-		//3: passthrough keys that should finalize the character
-		// 4: backspace
-		//5: passthrough keys that should not go to STM
-		var t = e.keyCode in keymap ? keymap[e.keyCode] : 3; 
-		var c = !e.shiftKey ? String.fromCharCode(e.keyCode).toLowerCase() : String.fromCharCode(e.keyCode);
-		var z;
-			
-		
-		
-		//lutM and lutF can be simplified by lowercasing them before insertion 
-		//DRAW CURRENT STATEMACHINE ON PAPER AND FIGURE OUT IF IT CANT BE SIMPLIFIED
-		//(ESPECIALLY THOSE TWO TEMPORARY VARS AND FINX FINY states (maybe can be removed by adding additional state transfer functions)
-		//lut can be eliminated if we manage to  calculate build (initial only without the table)
-	
-		
-		//if key was alpha or backspace, pass into stm
-		if(t != 5)
-		{
-			console.log("state before:"+s + "event:"+t );
-		
-			z = stm[s][t][1](c);
-			s = (z == null) ? stm[s][t][0] : z; //if state transfer func returned something, discard transition table result
-			console.log("state after :"+s+"event:"+t +" ini:" + ini + " mid:" + mid +" fin:"+fin+ " ("+build(ini,mid,fin)+")");
-		}
-		//prv();
-  		//prevent default if keypress was alpha
-		if(t == 0 || t == 1 || t==2)
-			e.preventDefault();
-				
-		return false;
-  	}
-  	//Mapping function for input keys (use keycodes instead of alpha chars, so it'll be internationally compatible without additional mapping
-	//EVENT: N(0)ALPHA NIEUNG 
-	//EVENT: V(1) ALPHA VOWEL
-	//EVENT: C(2) ALPHA CONSONANT
-	//EVENT: P(3) Passthrough key(every non alpha except backspace)
-	//EVENT: B(4) BACKSPACE
-	
-	var keymap = {	81:2,87:2, 69:2,82:2,84:2,89:1,85:1,73:1,79:1,80:1, //q..p
-					65:2,83:2,68:0,70:2, 71:2, 72:1,74:1, 75:1, 76:1,  //a...l
-					90:2,88:2,67:2,86:2,66:1, 78:1, 77:1,				//z...m
-					8:4,
-					//we need to differentiate between ctrl,shift,alt (which shall NOT be passed into the statemachine!)
-					//Those will cancel/finalize the character prematurely 
-					16:5, //Shift
-					18:5, //Alt
-					17:5, //Ctrl
-					91:5, //CMDL
-					93:5  //CMDR
-				 }
-				 				 
-	//finalize char (output and clear)
-  	function put(){	_.value = _.value + build(ini,mid,fin);ini = "";mid = "";fin = "";}
-  	//finalize char (output)
-  	function pke(){_.value = _.value + build(ini,mid,fin);}
-  	function pke2(){_.value = _.value + build(ini,mid,fin+tmp);}
-  	//remove last char from input element
-  	function pop(){_.value = _.value.length > 0? _.value.substring(0,_.value.length-1) : _.value;}
-  	//preview character
-  	function prv(){pop();pke();}
-  	//preview char (build, overwrite last if and output);
-  	//checks if the already is one, otherwise error on first inser
-  	//function prv(){_.value = _.value.length > 0? _.value.substring(0,_.value.length-1) +  build(ini,mid,fin) : build(ini,mid,fin) }
-  	//function prv2(){_.value = _.value +  build(ini,mid,fin)};
-  	//throw away current char
-  	//vf2 : //Case when typing  ㄱ ㅏ ㄴ ㅏ (ㄱ,가,간,가나 )
-  	//cf2: important to spell for example ibnida right
-  	/*
-  	function clr(){ini = "";mid = "";fin = "";tmp = "";}
-	function nul(c){}
-	function vm2(c){if(allowedM(c))mid +=c; } // delete last preview, preview
-	function cm1(c){mid+="$"; fin+="$";put();ini=c;} //delete last preview, preview
-	function pm1(c){mid+="$"; fin+="$";put();} // delete last preview, put, do nothing
-	function nf2(c){put();ini+=c;} //delete last preview, put, preview 
-	function vf2(c){var kx=fin;fin="$";put();ini=kx;mid=c;}  //delete last preview, put, preview next
-	function cf2(c){if(allowedF(c)){tmp=c;return 6;}else{put();ini=c;return 1;}}  // build preview out of ini mid and final+tmp as final
-	function vfx(c){fin="$";put();ini+=tmp;mid+=c;} //delete last preview, put, preview
-	function cfx(c){fin+=tmp;put();ini+=c;} //delete last preview, put, preview 
-	function vfy(c){put();ini+=tmp;mid+=c;} //delete preview, put, preview
-	function vm1(c){mid+=c;} //delete last preview, preview
-	function c1(c){ini+=c;}
-	function c2(c){fin+=c;}
-	function c3(c){fin+=c;}
-	function bm2(c){}
-	function bf1(c){}
-	function bf2(c){}
-	function bfx(c){}
-	function bm1(c){}
-	function bfy(c){}
-	function c4(c){fin+="$";put();}
-	function c5(c){put();}
-	function c6(c){tmp=c;}
-	function c7(c){fin+=tmp;put();ini+=c;} 
-	function c8(c){fin+=tmp;put();}
-	*/
-	function clr(){ini = "";mid = "";fin = "";tmp = "";}
-	function nul(c){}
-	function vm2(c){if(allowedM(c)){pop();mid +=c;pke();} } // delete last preview, preview
-	function cm1(c){pop();mid+="$"; fin+="$";put();ini=c;pke();} //delete last preview, put, preview
-	function pm1(c){pop();mid+="$"; fin+="$";put();} // delete last preview, put, do nothing
-	function nf2(c){pop();put();ini+=c;pke();} //delete last preview, put, preview 
-	function vf2(c){pop();var kx=fin;fin="$";put();ini=kx;mid=c;pke();}  //delete last preview, put, preview next
-	function cf2(c){if(allowedF(c)){pop();tmp=c;pke2();return 6;}else{pop();put();ini=c;pke();return 1;}}  // build preview out of ini mid and final+tmp as final
-	function vfx(c){pop();fin="$";put();ini+=tmp;mid+=c;pke();} //delete last preview, put, preview
-	function cfx(c){pop();fin+=tmp;put();ini+=c;pke();} //delete last preview, put, preview 
-	function vfy(c){pop();put();ini+=tmp;mid+=c;pke();} //delete preview, put, preview
-	function vm1(c){pop();mid+=c;pke();} //delete last preview, preview
-	function c1(c){ini+=c;pke();}
-	function c2(c){pop();fin+=c;pke();}
-	//function c3(c){pop();fin+=c;pke();}
-	function c3(c){pop();}
-	function bm2(c){}
-	function bf1(c){}
-	function bf2(c){}
-	function bfx(c){}
-	function bm1(c){}
-	function bfy(c){}
-	//function c4(c){pop();fin+="$";put();pke();}
-	function c4(c){pop();fin+="$";put();}
-	function c5(c){pop();put();}
-	function c6(c){pop();tmp=c;pke2();}
-	function c7(c){pop();fin+=tmp;put();ini+=c;pke();} 
-	function c8(c){pop();fin+=tmp;put();}
-	
-	
-	
-  	//EVENT: N(0) ALPHA NIEUNG 
-	//EVENT: V(1) ALPHA VOWEL
-	//EVENT: C(2) ALPHA CONSONANT
-	//EVENT: P(3) Passthrough key(every non alpha except backspace)
-	//EVENT: B(4) BACKSPACE
-	//'x' for state number denotes that state is returned by transition function and isn't fixed.
-	//we could always return it from the transition function, but then would use up too much space by writing 'return' over 
-	//and over and not being able to merge functions as they'd have different returns albeit same code.
-	//				  N       V       C         P       B
-	var stm = 	[	[[1,c1], [0,nul],[1,c1],   [0,c3], [0,nul]],  //0 STATE_INIT
-					[[0,c2], [2,vm1],[1,cm1],  [0,pm1],[0,bm1]],  //1 STATE_MID1
-					[[5,c6], [3,vm2],[4,c2],   [0,c4], [0,bm2]],  //2 STATE_MID2
-					[[5,c6], [0,c5], [4,c2],   [0,c4], [0,bf1]],  //3 STATE_FIN1
-					[[1,nf2],[2,vf2],['x',cf2],[0,c5], [0,bf2]],  //4 STATE_FIN2
-					[[1,c7], [2,vfx],[1,cfx],  [0,c8], [0,bfx]],  //5 STATE_FINX
-					[[1,c7], [2,vfy],[1,c7],   [0,c8], [0,bfy]]   //6 STATE_FINY
-				];	
+  // Start Jamo (codepoint & corresponding characters) - 19 lead consonant elements
+  var mapKeystrokeToCodepointHead = {
+    r:0, //"ㄱ" <-- corresponding Jamo
+    R:1, //"ㄲ" 
+    s:2, //"ㄴ"
+    e:3, //"ㄷ"
+    E:4, //"ㄸ"
+    f:5, //"ㄹ"
+    a:6, //"ㅁ"
+    q:7, //"ㅂ"
+    Q:8, //"ㅃ"
+    t:9, //"ㅅ"
+    T:10, //"ㅆ"
+    d:11, //"ㅇ"
+    w:12, //"ㅈ"
+    W:13, //"ㅉ"
+    c:14, //"ㅊ"
+    z:15, //"ㅋ"
+    x:16, //"ㅌ"
+    v:17, //"ㅍ"
+    g:18, //"ㅎ"
+    rr:1, //"ㄲ" 
+    ee:4, //"ㄸ"
+    qq:8, //"ㅃ"
+    ww:13, //"ㅉ"
+    tt:10 //"ㅆ"
+  };
 
-  	function allowedM(c){
-  		if(mid in m2e)
-  			if(m2e[mid].indexOf(c) != -1)
-  				return true;
-  		return false;
-  	}
-  	function allowedF(c){
-  		if(fin in f2e)
-  			if(f2e[fin].indexOf(c) != -1)
-  				return true;
-  		return false;
-  	}
-  	//Build character preview for debugging
-  	function build(i,m,f){
-  		var hangul;
-  		if(m=="")m="$";
-  		if(f=="")f="$";
-  		if(m=="$" && f == "$")
-  			hangul = lut[i];
-  		else
-      		hangul = String.fromCharCode((lutI[i]-1)*588 + (lutM[m]-1)*28 + lutF[f]+44032);       
+  // Middle Jamo 
+  var mapJamoToCodepointBody = {
+    k:0, //"ㅏ" <-- corresponding Jamo
+    o:1, //"ㅐ"
+    i:2, //"ㅑ"
+    O:3, //"ㅒ"
+    j:4, //"ㅓ"
+    p:5, //"ㅔ"
+    u:6, //"ㅕ"
+    P:7, //"ㅖ"
+    h:8, //"ㅗ"
+    hk:9, //"ㅘ"
+    ho:10, //"ㅙ"
+    hl:11, //"ㅚ"
+    y:12, //"ㅛ"
+    n:13, //"ㅜ"
+    nj:14, //"ㅝ"
+    np:15, //"ㅞ"
+    nl:16, //"ㅟ"
+    b:17, //"ㅠ"
+    m:18, //"ㅡ"
+    ml:19, //"ㅢ"
+    l:20 //"ㅣ"l
+  };
+
+  // Final Jamo
+  var mapJamoToCodepointTail = {
+    _fin:0, // <-- finalise output without tail
+    r:1, //"ㄱ" <-- corresponding Jamo
+    R:2, //"ㄲ"
+    rt:3, //"ㄳ"
+    s:4, //"ㄴ"
+    sw:5, //"ㄵ"
+    sg:6, //"ㄶ"
+    e:7, //"ㄷ"
+    f:8, //"ㄹ"
+    fr:9, //"ㄺ"
+    fa:10, //"ㄻ"
+    fq:11, //"ㄼ"
+    ft:12, //"ㄽ"
+    fx:13, //"ㄾ"
+    fv:14, // "ㄿ"
+    fg:15, //"ㅀ"
+    a:16, //"ㅁ"
+    q:17, //"ㅂ"
+    qt:18, //"ㅄ"
+    t:19, //"ㅅ"
+    tt:20, //"ㅆ"
+    d:21, //"ㅇ"
+    w:22, //"ㅈ"
+    c:23, //"ㅊ"
+    z:24, //"ㅋ"
+    x:25, //"ㅌ"
+    v:26, //"ㅍ"
+    g:27 //"ㅎ"
+  }
     
-    	return hangul;
-  	}  
-  	
-  	// Return an object containing pointers to private functions
-    return {
-        init: init
-    };
+	// Constructors with accessor methods
+	// Getters and Setters here i.e. Hangul
+	
+	// Hangul stores info on the three Jamo characters that make up Hangul with Hangul info
+  var Hangul = function(){
+   this.jamoHead = undefined; // String
+   this.jamoBody = undefined;  // String
+   this.jamoTail = undefined;  // String
+   this.codepointHead = undefined; // Integer
+   this.codepointBody = undefined; // Integer
+   this.codepointTail = undefined; // Integer
+   this.setJamoHead = function(jamo){
+       this.jamoHead = jamo;
+   };
+   this.setJamoBody = function(jamo){
+       this.jamoBody = jamo;
+   };
+   this.setJamoTail = function(jamo){
+       this.jamoTail = jamo;
+   };
+   this.setCodepointHead = function(codepoint){
+       this.codepointHead = codepoint;
+   };
+   this.setCodepointBody = function(codepoint){
+       this.codepointBody = codepoint;
+   };
+   this.setCodepointTail = function(codepoint){
+       this.codepointTail = codepoint;
+   };
+   this.getJamoHead = function(){
+       return this.jamoHead;
+   };
+   this.getJamoBody = function(){
+       return this.jamoBody; 
+   };
+   this.getJamoTail = function(){
+       return this.jamoTail;   
+   };
+   this.getHangul = function(){
+       return String.fromCharCode( (this.codepointHead-1)*588 + (this.codepointBody-1)*28 + this.codepointTail + 44032 );   
+   };
+   this.unsetJamoHead = function(){
+       this.jamoHead = undefined;
+       this.codepointHead = undefined;
+   };
+   this.unsetJamoBody = function(){
+       this.jamoBody = undefined;
+       this.codepointBody = undefined;
+   };
+   this.unsetJamoTail = function(){
+       this.jamoTail = undefined; 
+       this.codepointTail = undefined;
+   };
+   this.resetHangul = function(){
+       this.jamoHead = undefined;
+       this.jamoBody = undefined;
+       this.jamoTail = undefined;
+       this.codepointHead = undefined;
+       this.codepointBody = undefined;
+       this.codepointTail = undefined;
+   };
+  };
+
+  // Set new Objects to public variable names
+
+	// Make empty (by default) public Hangul object (for accessing to use in below)
+	hangul = new Hangul();
+
+	// Main starter function which takes 'id' parameter as obtained from the HTML document
+	function init(id){
+	        // Set the variables to default values
+	        // Define conversion to be true (switch Korean input on) by default (at the start)
+	        convert = (typeof convert === 'undefined') ? true : true;
+	        // Get the input area information
+	        input = document.getElementById(id); // Gets the textarea by the 'id' name given
+	        // Start checking each key entry into the input area (based on 'keydown' events)
+	        input.addEventListener("keydown", filterKey, false); // Calls 'filterKey' function
+	        // Console logging notes for testing
+	        console.log("#info#: initialising"); 
+        
+	}
+
+	// Check if the keyboard event (key selection) is allowed if in Korean mode
+	function filterKey(event){
+        
+        // Internal variables (which will not be stored past the point of event)
+        var keyInput; // Current keyed-in input character from the user
+        var keyStoke; // Combination of keyStrokes up to 2 digits (if history exists)
+        var keyOutput; // The return string (displayed output on-screen)
+        
+        var keyAllow; // T or F
+        
+        // ToDo:
+        // .....
+        
+       // Cross browser event definition check
+        event = event|| window.event;
+ 
+        // Sets the key's string value, else finalise the previous input (if any) and ignore the current input
+        keyInput = event.keyCode in mapKeycodeToKey ? mapKeycodeToKey[event.keyCode] : "invalid"; 
+        
+		if (convert == true && keyInput == "invalid"){// Input was invalid and not expected
+		//Cancel the keypress event (forbids entry of non-mapped keyInput keys when in Korean mode)
+		event.preventDefault(); 
+		}
+		else{// Input is allowed (for now)
+			// ToDo:
+			//...
+		}
+        
+	}
+	
 
 })();
-   
